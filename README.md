@@ -21,6 +21,14 @@ git submodule update --init --recursive
 
 We recommend using `conda` to install the dependencies:
 
+(Taro's note:)
+On my device, I installed:
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 
+```
+For GPU compatibility.
+
 ```bash
 conda env create --name llm_gs_env --file environment.yml
 pip install -r requirements.txt

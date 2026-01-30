@@ -2,9 +2,10 @@ from __future__ import annotations
 import math
 import os
 from typing import Dict, List
-from langchain_community.llms import HuggingFacePipeline
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-import torch
+from langchain_community.llms import LlamaCpp
+# from langchain_community.llms import HuggingFacePipeline
+# from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+# import torch
 # from langchain_openai import ChatOpenAI
 # from langchain_core.messages import HumanMessage, SystemMessage
 import numpy as np
@@ -15,7 +16,7 @@ from prog_policies.utils import get_env_name
 from prog_policies.base import BaseDSL, dsl_nodes
 
 from dotenv import load_dotenv
-from huggingface_hub import login
+from huggingface_hub import login, hf_hub_download
 
 # CHATGPT_KEY = os.getenv("OPENAI_KEY")
 
@@ -23,7 +24,10 @@ from huggingface_hub import login
 load_dotenv()
 token = os.getenv("HF_TOKEN")
 login(token=token)
-model_id = "Qwen/Qwen3-1.7B"
+
+# GGUF model configuration
+model_repo = "Qwen/Qwen3-4B-GGUF"
+model_filename = "Qwen3-4B-Q4_K_M.gguf"  # Q4_K_M quantization
 
 
 class LLMProgramGenerator:
@@ -61,25 +65,23 @@ class LLMProgramGenerator:
             self.perception_shots,
             self.program_shots,
         )
-        self.model_name = model_id #model used
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.model_name,
-            torch_dtype=torch.float16,
-            device_map="cpu" #change to auto if GPU available
+
+        # Download GGUF model from HuggingFace
+        model_path = hf_hub_download(
+            repo_id=model_repo,
+            filename=model_filename,
         )
 
-        hf_pipe = pipeline(
-            "text-generation",
-            model=self.model,
-            tokenizer=self.tokenizer,
-            do_sample=True,
+        # Initialize LlamaCpp with GGUF model
+        self.llm = LlamaCpp(
+            model_path=model_path,
             temperature=self.temperature,
             top_p=self.top_p,
-            max_new_tokens=50, #change to 1024
+            max_tokens=1024,
+            n_ctx=4096,  # Context window
+            n_gpu_layers=-1,  # Use all GPU layers (-1 = all, 0 = CPU only)
+            verbose=False,
         )
-
-        self.llm = HuggingFacePipeline(pipeline=hf_pipe)
 
 
     def _call_llm(self, system_prompt: str, user_prompt: str, llm_program_num: int) -> list[str]: #str | List[str | Dict]:
@@ -99,15 +101,20 @@ class LLMProgramGenerator:
         #     ]
         # ).generations[0]
         #return list(map(lambda x: x.text, response))
-        prompt = f"""<|system|>
-                    {system_prompt}
-                    <|user|>
-                    {user_prompt}
-                    <|assistant|>
-                  """
-        generations = self.llm.generate([prompt] * llm_program_num).generations
-        # Return a list of strings
-        return [gen[0].text for gen in generations]
+
+        # Qwen3 chat template format
+        prompt = f"""<|im_start|>system
+{system_prompt}<|im_end|>
+<|im_start|>user
+{user_prompt}<|im_end|>
+<|im_start|>assistant
+"""
+        # LlamaCpp doesn't support batch generation, so we call it multiple times
+        generations = []
+        for _ in range(llm_program_num):
+            response = self.llm.invoke(prompt)
+            generations.append(response)
+        return generations
 
         
 
@@ -158,7 +165,7 @@ class LLMProgramGenerator:
         program_num = self.llm_program_num
         while len(program_list) < program_num:
             attempts += 1
-            seed = self.np_rng.randint(0, 2**32)
+            seed = self.np_rng.randint(0, 2**31)
             llm_program_num = math.ceil((program_num - len(program_list)) * self.ratio)
             system_prompt = self.prompt_generator.get_system_prompt_python_to_dsl()
             user_prompt = self.prompt_generator.get_user_prompt_python_to_dsl()
@@ -206,7 +213,7 @@ class LLMProgramGenerator:
         program_num = self.llm_program_num
         while len(program_list) < program_num:
             attempts += 1
-            seed = self.np_rng.randint(0, 2**32)
+            seed = self.np_rng.randint(0, 2**31)
             llm_program_num = math.ceil((program_num - len(program_list)) * self.ratio)
             system_prompt = self.prompt_generator.get_system_prompt_python()
             user_prompt = self.prompt_generator.get_user_prompt_python()
@@ -250,7 +257,7 @@ class LLMProgramGenerator:
         program_num = self.llm_program_num
         while len(program_list) < program_num:
             attempts += 1
-            seed = self.np_rng.randint(0, 2**32)
+            seed = self.np_rng.randint(0, 2**31)
             llm_program_num = math.ceil((program_num - len(program_list)) * self.ratio)
             system_prompt = self.prompt_generator.get_system_prompt_dsl()
             user_prompt = self.prompt_generator.get_user_prompt_dsl()
@@ -297,7 +304,7 @@ class LLMProgramGenerator:
         program_num = self.llm_program_num
         while len(program_list) < program_num:
             attempts += 1
-            seed = self.np_rng.randint(0, 2**32)
+            seed = self.np_rng.randint(0, 2**31)
             llm_program_num = math.ceil((program_num - len(program_list)) * self.ratio)
             system_prompt = self.prompt_generator.get_system_prompt_python_to_dsl()
             user_prompt = self.prompt_generator.get_user_prompt_revision_regeneration_with_reward(progs_rewards, self.dsl)
@@ -348,7 +355,7 @@ class LLMProgramGenerator:
         program_num = self.llm_program_num
         while len(program_list) < program_num:
             attempts += 1
-            seed = self.np_rng.randint(0, 2**32)
+            seed = self.np_rng.randint(0, 2**31)
             llm_program_num = math.ceil((program_num - len(program_list)) * self.ratio)
             system_prompt = self.prompt_generator.get_system_prompt_python_to_dsl()
             user_prompt = self.prompt_generator.get_user_prompt_revision_regeneration(previous_program_list, self.dsl)
@@ -399,7 +406,7 @@ class LLMProgramGenerator:
         program_num = self.llm_program_num
         while len(program_list) < program_num:
             attempts += 1
-            seed = self.np_rng.randint(0, 2**32)
+            seed = self.np_rng.randint(0, 2**31)
             llm_program_num = math.ceil((program_num - len(program_list)) * self.ratio)
             system_prompt = self.prompt_generator.get_system_prompt_python_to_dsl()
             user_prompt = self.prompt_generator.get_user_prompt_revision_agent_execution_trace(reward, logs, average_reward)
@@ -450,7 +457,7 @@ class LLMProgramGenerator:
         program_num = self.llm_program_num
         while len(program_list) < program_num:
             attempts += 1
-            seed = self.np_rng.randint(0, 2**32)
+            seed = self.np_rng.randint(0, 2**31)
             llm_program_num = math.ceil((program_num - len(program_list)) * self.ratio)
             system_prompt = self.prompt_generator.get_system_prompt_python_to_dsl()
             user_prompt = self.prompt_generator.get_user_prompt_revision_agent_program_execution_trace(reward, logs, average_reward)

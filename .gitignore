@@ -9,3 +9,5 @@ wandb
 *.pdf
 output
 .DS_Store
+.claude/
+.vscode/
