@@ -1,199 +1,14 @@
-# import sys
-# import os
-# import ast
-# import re
-# import json
-# import numpy as np
-# from collections import deque
-# from langchain_community.llms import Ollama
-# import prog_policies.utils 
-# from prog_policies.karel_tasks.clean_house import CleanHouse
-
-# # --- CONFIGURATION ---
-# MODEL_NAME = "llama3.2" 
-
-# def fix_map_dimensions(grid, target_h=14, target_w=22):
-#     """
-#     AUTO-REPAIR: Ensures the map is exactly 14x22.
-#     """
-#     # 1. Fix Height (Rows)
-#     current_h = len(grid)
-#     if current_h < target_h:
-#         print(f"   -> Repairing Height: Adding {target_h - current_h} empty rows.")
-#         for _ in range(target_h - current_h):
-#             new_row = ['.'] * target_w # Use . for empty
-#             new_row[0] = '#'; new_row[-1] = '#' # Use # for wall
-#             grid.append(new_row)
-#     elif current_h > target_h:
-#         grid = grid[:target_h]
-    
-#     # 2. Fix Width (Columns)
-#     for i in range(len(grid)):
-#         # Force conversion to list in case of tuples
-#         row = list(grid[i])
-#         current_w = len(row)
-#         if current_w < target_w:
-#             row.extend(['.'] * (target_w - current_w))
-#         elif current_w > target_w:
-#             row = row[:target_w]
-#         grid[i] = row
-            
-#     return grid
-
-# def translate_map_for_karel(llm_grid):
-#     """
-#     TRANSLATOR: Converts LLM symbols to Karel Engine symbols.
-#     LLM says: '.' (Empty), '#' (Wall) -> Engine expects: 0 (Empty), '-' (Wall)
-#     """
-#     karel_grid = []
-#     for row in llm_grid:
-#         new_row = []
-#         for cell in row:
-#             s_cell = str(cell)
-#             # Logic: If it looks like a wall (0 or #), it's a wall.
-#             if s_cell == '#' or s_cell == '0': 
-#                 new_row.append('-') 
-#             else:
-#                 new_row.append(0)
-#         karel_grid.append(new_row)
-#     return karel_grid
-
-# def get_llm_map():
-#     print(f"\n[1/3] Contacting Ollama ({MODEL_NAME})...")
-#     llm = Ollama(model=MODEL_NAME, temperature=0.6)
-    
-#     # Simplified Prompt: "Just give me the list"
-#     prompt = """
-#     Generate a 14x22 Grid Map.
-#     Output ONLY a Python list of lists.
-    
-#     Legend:
-#     '.' = Empty Space
-#     '#' = Wall
-    
-#     Rules:
-#     1. Borders must be '#'.
-#     2. Output raw list only.
-#     3. Do NOT write a script. Do NOT use "import".
-    
-#     Example:
-#     [['#', '#', '#'], ['#', '.', '#']]
-#     """
-    
-#     try:
-#         response = llm.invoke(prompt)
-#     except Exception as e:
-#         print(f"Ollama Error: {e}")
-#         return None
-
-#     # --- BULLETPROOF PARSER ---
-#     # 1. Regex to find the list block [[ ... ]] inside the text
-#     # This ignores "Here is the code:" at the start.
-#     match = re.search(r"\[\s*\[.*?\]\s*\]", response, re.DOTALL)
-    
-#     if match:
-#         clean_str = match.group(0)
-#         # 2. Dual Parse Strategy
-#         try:
-#             # Plan A: Try reading as Python List (Best for single quotes)
-#             raw_map = ast.literal_eval(clean_str)
-#             return fix_map_dimensions(raw_map)
-#         except:
-#             try:
-#                 # Plan B: Try reading as JSON (Best for double quotes)
-#                 raw_map = json.loads(clean_str)
-#                 return fix_map_dimensions(raw_map)
-#             except:
-#                 pass
-
-#     print("Could not extract map. The AI wrote a script instead of data.")
-#     print("Raw Response snippet:", response[:200])
-#     return None
-
-# def check_solvability(env):
-#     state = env.state
-#     walls = state[4, :, :]
-#     markers = np.sum(state[6:, :, :], axis=0) > 0
-#     marker_coords = list(zip(*np.where(markers)))
-    
-#     if not marker_coords: 
-#         print("Warning: No markers generated. Technically solvable.")
-#         return True 
-
-#     start_r, start_c = env.hero_pos[0], env.hero_pos[1]
-    
-#     if walls[start_r, start_c]:
-#         print("\n[FAIL] Robot spawned INSIDE a wall.")
-#         return False
-
-#     queue = deque([(start_r, start_c)])
-#     visited = set([(start_r, start_c)])
-#     directions = [(-1,0), (1,0), (0,-1), (0,1)]
-#     height, width = walls.shape
-    
-#     while queue:
-#         r, c = queue.popleft()
-#         for dr, dc in directions:
-#             nr, nc = r + dr, c + dc
-#             if 0 <= nr < height and 0 <= nc < width:
-#                 if not walls[nr, nc] and (nr, nc) not in visited:
-#                     visited.add((nr, nc))
-#                     queue.append((nr, nc))
-    
-#     unreachable = [m for m in marker_coords if m not in visited]
-            
-#     if unreachable:
-#         print(f"\n[FAIL] Map is IMPOSSIBLE. Unreachable markers: {len(unreachable)}")
-#         return False
-#     else:
-#         print(f"\n[PASS] Map is SOLVABLE.")
-#         return True
-
-# def print_karel_grid(env):
-#     state = env.state
-#     _, height, width = state.shape
-#     print(f"\n--- MAP VISUALIZATION ({height}x{width}) ---")
-#     for y in range(height):
-#         row_str = ""
-#         for x in range(width):
-#             if state[4, y, x]: char = "#"      
-#             elif np.any(state[0:4, y, x]): char = "A" 
-#             elif np.any(state[6:, y, x]): char = "*"  
-#             else: char = "."
-#             row_str += char + " " 
-#         print(row_str)
-#     print("-" * (width * 2))
-
-# def main():
-#     llm_map = get_llm_map()
-#     if not llm_map: return
-
-#     print("   -> Translating symbols for Karel Engine...")
-#     karel_ready_map = translate_map_for_karel(llm_map)
-
-#     print("\n[2/3] Loading into Environment...")
-#     env_args = {'env_height': 14, 'env_width': 22, 'layout': karel_ready_map}
-    
-#     try:
-#         task = CleanHouse(seed=0, env_args=env_args)
-#         env = task.initial_environment
-#         print_karel_grid(env)
-#         print("\n[3/3] Validating Solvability...")
-#         check_solvability(env)
-#     except Exception as e:
-#         print(f"Validation Failed: {e}")
-
-# if __name__ == "__main__":
-#     main()
-
 import sys
 import os
 import re
+import copy
 import numpy as np
 from collections import deque
 from langchain_community.llms import Ollama
 import prog_policies.utils 
 from prog_policies.karel_tasks.clean_house import CleanHouse
+# --- ADDED: Import the DSL Parser ---
+from prog_policies.karel.dsl import KarelDSL
 
 MODEL_NAME = "llama3.2" 
 
@@ -327,10 +142,15 @@ def check_solvability(env):
         print(f"\n[PASS] SOLVABLE! Robot can reach all markers.")
         return True
 
-def print_karel_grid(env):
+def print_karel_grid(env, step_num=None): # --- ADDED step_num for tracing ---
     state = env.state
     _, height, width = state.shape
-    print(f"\n--- MAP VISUALIZATION ({height}x{width}) ---")
+    
+    # --- ADDED: Header handling ---
+    header = f"--- MAP VISUALIZATION ({height}x{width})"
+    if step_num is not None: header += f" (Step {step_num})"
+    print(f"\n{header} ---")
+    
     for y in range(height):
         row_str = ""
         for x in range(width):
@@ -341,6 +161,55 @@ def print_karel_grid(env):
             row_str += char + " " 
         print(row_str)
     print("-" * (width * 2))
+
+# --- ADDED: DSL Execution Function ---
+def run_dsl_program(program_str, task):
+    """
+    Parses and runs the DSL program on the generated map.
+    """
+    print("\n[DEBUG] Parsing Program...")
+    dsl = KarelDSL()
+    
+    try:
+        # Parse exactly as written in the file (No Regex cleaning)
+        program_node = dsl.parse_str_to_node(program_str)
+    except Exception as e:
+        print(f"Parser Error: {e}")
+        return
+
+    # 1. Reset and Copy Environment
+    task.reset_environment()
+    env = copy.deepcopy(task.initial_environment)
+    
+    print("\n[DEBUG] Running Program Step-by-Step...")
+    
+    try:
+        step_gen = program_node.run_generator(env)
+        steps = 0
+        terminated = False
+        reward = 0.0
+        
+        # Run until finished
+        for _ in step_gen:
+            steps += 1
+            terminated, reward = task.get_reward(env)
+            if terminated: break
+        
+        # Double check final reward state
+        if not terminated: 
+            _, reward = task.get_reward(env)
+             
+        print(f"\n[RESULT] Final Reward: {reward}")
+        if reward == 1.0: print("Outcome: SUCCESS (Cleaned all markers!)")
+        elif reward == task.crash_penalty: print("Outcome: CRASH (Hit a wall)")
+        else: print(f"Outcome: INCOMPLETE (Reward: {reward})")
+            
+        print("Final State:")
+        print_karel_grid(env, step_num="FINAL")
+        
+    except Exception as e:
+        print(f"Runtime Error: {e}")
+        print_karel_grid(env, step_num="CRASH")
 
 def main():
     final_map = get_llm_map()
@@ -356,6 +225,20 @@ def main():
         
         print("\n[3/3] Checking Solvability...")
         check_solvability(env)
+        
+        # --- ADDED: CLI Logic to Run Program ---
+        if len(sys.argv) == 2:
+            dsl_file = sys.argv[1]
+            if os.path.exists(dsl_file):
+                print(f"\n[4/4] Executing Program: {dsl_file}")
+                with open(dsl_file, 'r') as f:
+                    code = f.read().strip()
+                run_dsl_program(code, task)
+            else:
+                print(f"File not found: {dsl_file}")
+        else:
+            print("\nTo run a program, use: python3 view_task.py <your_file.dsl>")
+
     except Exception as e:
         print(f"Validation Failed: {e}")
 
