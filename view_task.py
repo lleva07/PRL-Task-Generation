@@ -187,45 +187,88 @@ def run_dsl_program(program_str, task):
         
     except Exception as e:
         print(f"Runtime Error: {e}")
+        
+# def main():
+#     # 1. HARDCODE SEED 0 (Remove the random or LLM-based logic)
+#     seed = 0
+#     print(f"Testing on the Original Training Environment: Seed {seed}")
+    
+#     # 2. DISABLE LLM LAYOUT (Ensure it uses the default hardcoded map)
+#     env_args = {'env_height': 14, 'env_width': 22} 
+
+# # def main():
+# #     # 1. READ DSL FILE FIRST
+# #     dsl_code = None
+# #     dsl_file = None
+    
+# #     if len(sys.argv) == 2:
+# #         dsl_file = sys.argv[1]
+# #         if os.path.exists(dsl_file):
+# #             print(f"[Input] Reading DSL solution from: {dsl_file}")
+# #             with open(dsl_file, 'r') as f:
+# #                 dsl_code = f.read().strip()
+# #         else:
+# #             print(f"File not found: {dsl_file}")
+# #             return
+
+# #     # # 2. GENERATE MAP (Conditioned on DSL if available)
+# #     # final_map = get_llm_map(dsl_code)
+# #     # if not final_map: return
+
+# #     # print("\n[2/3] Loading into Environment...")
+# #     # env_args = {'env_height': 14, 'env_width': 22, 'layout': final_map}
+    
+# #     print("\n[2/3] Loading into Environment...")
+# #     # Remove 'layout' so it uses the hardcoded CleanHouse map
+# #     env_args = {'env_height': 14, 'env_width': 22}
+    
+#     try:
+#         task = CleanHouse(seed=0, env_args=env_args)
+        
+#         # Show Initial State
+#         print_karel_grid(task.initial_environment, step_num="START")
+        
+#         # 3. RUN PROGRAM (If we have one)
+#         if dsl_code:
+#             print(f"\n[3/3] Testing generated environment with: {dsl_file}")
+#             run_dsl_program(dsl_code, task)
+#         else:
+#             print("\nTo generate a solution-specific map, use: python3 view_task.py <your_file.dsl>")
+
+#     except Exception as e:
+#         print(f"Validation Failed: {e}")
+
+# if __name__ == "__main__":
+#     main()
 
 def main():
-    # 1. READ DSL FILE FIRST
-    dsl_code = None
-    dsl_file = None
-    
-    if len(sys.argv) == 2:
-        dsl_file = sys.argv[1]
-        if os.path.exists(dsl_file):
-            print(f"[Input] Reading DSL solution from: {dsl_file}")
-            with open(dsl_file, 'r') as f:
-                dsl_code = f.read().strip()
-        else:
-            print(f"File not found: {dsl_file}")
-            return
+    # 1. READ THE DSL FILE FIRST (This defines dsl_code)
+    if len(sys.argv) < 2:
+        print("Usage: python3 view_task.py <solution.dsl>")
+        return
 
-    # # 2. GENERATE MAP (Conditioned on DSL if available)
-    # final_map = get_llm_map(dsl_code)
-    # if not final_map: return
-
-    # print("\n[2/3] Loading into Environment...")
-    # env_args = {'env_height': 14, 'env_width': 22, 'layout': final_map}
+    dsl_file = sys.argv[1]
+    with open(dsl_file, 'r') as f:
+        dsl_code = f.read().strip() # This variable MUST exist before anything else
     
-    print("\n[2/3] Loading into Environment...")
-    # Remove 'layout' so it uses the hardcoded CleanHouse map
-    env_args = {'env_height': 14, 'env_width': 22}
+    print(f"[Input] Reading DSL solution from: {dsl_file}")
+
+    # 2. HARDCODE SEED 0 & REMOVE LLM LAYOUT
+    seed = 0
+    print(f"Testing on the Original Training Environment: Seed {seed}")
+    
+    # We remove 'layout': final_map to ensure it uses the default world_map from clean_house.py
+    env_args = {'env_height': 14, 'env_width': 22} 
     
     try:
-        task = CleanHouse(seed=0, env_args=env_args)
+        task = CleanHouse(seed=seed, env_args=env_args)
         
-        # Show Initial State
+        # Show the starting layout
         print_karel_grid(task.initial_environment, step_num="START")
         
-        # 3. RUN PROGRAM (If we have one)
-        if dsl_code:
-            print(f"\n[3/3] Testing generated environment with: {dsl_file}")
-            run_dsl_program(dsl_code, task)
-        else:
-            print("\nTo generate a solution-specific map, use: python3 view_task.py <your_file.dsl>")
+        # 3. RUN THE PROGRAM
+        print(f"\n[3/3] Testing generated environment with: {dsl_file}")
+        run_dsl_program(dsl_code, task) # This uses the dsl_code we read in step 1
 
     except Exception as e:
         print(f"Validation Failed: {e}")

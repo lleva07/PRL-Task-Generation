@@ -76,20 +76,17 @@ ROBOT PROGRAM:
 ROBOT PATH RECORDED (Y, X coordinates):
 {path_info}
 
-TASK: 
-Generate a 14x22 ASCII map that is 100% solvable by the provided ROBOT PROGRAM. 
-Because the program is rigid, you must explicitly "hardcode" the environment to match the robot's exact footprints.
+TASK:
+You are a strict grid-validation algorithm. Your job is to generate a new variation of the CURRENT MAP that is 100% solvable by the provided ROBOT PROGRAM.
 
-STRICT RULES:
-1. GRID SIZE: The output MUST be exactly 14 rows by 22 columns.
-2. THE TUNNEL: The ROBOT PATH RECORDED shows exactly where the robot tries to walk. EVERY coordinate in this path MUST be an empty floor ('.') or a dust marker ('*'). You are forbidden from placing walls on the recorded path.
-3. THE DUST: You MUST place exactly 10 dust markers ('*') directly ON the robot's recorded path so the robot is guaranteed to step on them.
-4. THE OBSTACLES: Fill the empty space outside of the robot's path with walls ('#') to make it look like a maze, but do not block the path itself.
-5. OUTER BORDER: The edges of the map must remain walls ('-').
+ABSOLUTE RULES:
+1. GRID DIMENSIONS: The output MUST be exactly 14 rows by 22 columns. The outer border MUST remain '-'.
+2. PROTECT THE PATH: The ROBOT PATH RECORDED lists the exact coordinates the robot steps on. You are FORBIDDEN from placing a wall ('#') on any of these coordinates.
+3. DUST PLACEMENT: You MUST place exactly 10 dust markers ('*'). To guarantee the robot picks them up, every single '*' MUST be placed directly ON a coordinate listed in the ROBOT PATH RECORDED. 
+4. PERTURB WALLS: Fill the remaining space outside the robot's path with new wall ('#') layouts to change the maze structure.
 
 OUTPUT FORMAT:
-Output ONLY the 14 lines of ASCII characters. Do not include any conversational text, explanations, or markdown formatting blocks. Just the raw text grid.
-"""
+Output ONLY the 14 lines of ASCII characters. NO markdown tags (like ```text), NO explanations, NO conversational text. Just the raw grid."""
     
     try:
         print("[Debug] Calling Ollama...")
