@@ -2,12 +2,7 @@ from __future__ import annotations
 import math
 import os
 from typing import Dict, List
-from langchain_community.llms import LlamaCpp
-# from langchain_community.llms import HuggingFacePipeline
-# from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-# import torch
-# from langchain_openai import ChatOpenAI
-# from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_ollama import OllamaLLM
 import numpy as np
 
 from llm.prompt_generator import PromptGenerator
@@ -15,19 +10,7 @@ from llm.utils import get_program_str_from_llm_response_dsl, get_program_str_fro
 from prog_policies.utils import get_env_name
 from prog_policies.base import BaseDSL, dsl_nodes
 
-from dotenv import load_dotenv
-from huggingface_hub import login, hf_hub_download
-
-# CHATGPT_KEY = os.getenv("OPENAI_KEY")
-
-# HuggingFace login and model selection
-load_dotenv()
-token = os.getenv("HF_TOKEN")
-login(token=token)
-
-# GGUF model configuration
-model_repo = "Qwen/Qwen3-4B-GGUF"
-model_filename = "Qwen3-4B-Q4_K_M.gguf"  # Q4_K_M quantization
+MODEL_NAME = "qwen2.5-coder:7b"
 
 
 class LLMProgramGenerator:
@@ -66,21 +49,10 @@ class LLMProgramGenerator:
             self.program_shots,
         )
 
-        # Download GGUF model from HuggingFace
-        model_path = hf_hub_download(
-            repo_id=model_repo,
-            filename=model_filename,
-        )
-
-        # Initialize LlamaCpp with GGUF model
-        self.llm = LlamaCpp(
-            model_path=model_path,
+        self.llm = OllamaLLM(
+            model=MODEL_NAME,
             temperature=self.temperature,
             top_p=self.top_p,
-            max_tokens=1024,
-            n_ctx=4096,  # Context window
-            n_gpu_layers=-1,  # Use all GPU layers (-1 = all, 0 = CPU only)
-            verbose=False,
         )
 
 
@@ -102,14 +74,7 @@ class LLMProgramGenerator:
         # ).generations[0]
         #return list(map(lambda x: x.text, response))
 
-        # Qwen3 chat template format
-        prompt = f"""<|im_start|>system
-{system_prompt}<|im_end|>
-<|im_start|>user
-{user_prompt}<|im_end|>
-<|im_start|>assistant
-"""
-        # LlamaCpp doesn't support batch generation, so we call it multiple times
+        prompt = f"{system_prompt}\n\n{user_prompt}"
         generations = []
         for _ in range(llm_program_num):
             response = self.llm.invoke(prompt)
