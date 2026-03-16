@@ -44,22 +44,24 @@ def main():
     program_node = dsl_parser.parse_str_to_node(dsl_code)
     
     steps = 0
-    max_steps = 100
+    max_steps = 10000
     print_grid(env, steps)
 
     try:
         step_gen = program_node.run_generator(env)
+        total_reward = 0
         for _ in step_gen:
             steps += 1
             print_grid(env, steps)
             
             terminated, reward = task.get_reward(env)
+            total_reward += reward
             
             if terminated:
                 if reward == task.crash_penalty:
                     print(f"\n[CRASH] Robot hit a wall at step {steps}.")
                 else:
-                    print(f"\n[SUCCESS] Task finished! Reward: {reward}")
+                    print(f"\n[SUCCESS] Task finished! Reward: {total_reward}")
                 break
             
             if steps >= max_steps:
