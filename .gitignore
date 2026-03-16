@@ -8,3 +8,5 @@ wandb
 *.gif
 *.pdf
 output
+.claude/
+.vscode/
