@@ -10,3 +10,4 @@ wandb
 output
 .claude/
 .vscode/
+hc_results/

@@ -9,7 +9,7 @@ import prog_policies.utils
 from prog_policies.karel_tasks.clean_house import CleanHouse
 from prog_policies.karel.dsl import KarelDSL
 
-MODEL_NAME = "qwen2.5-coder:7b" 
+MODEL_NAME = "qwen2.5-coder:7b" #'deepseek-r1:14b' 
 
 # --- 1. MAP PARSER ---
 def parse_llm_map(ascii_str, target_h=14, target_w=22):
@@ -49,13 +49,14 @@ def map_to_string(state):
     return output
 
 # --- 2. THE PERTURBATION LOOP ---
-def perturb_environment(dsl_code, current_env, crash_report, visited_cells=None):
+def perturb_environment(dsl_code, current_env, og_env, crash_report, visited_cells=None):
     print(f"\n[AI] Perturbing Environment to fix: {crash_report}")
     
     # Added a 60-second timeout to prevent the script from hanging on a slow AI response
     llm = OllamaLLM(model=MODEL_NAME, temperature=0.5, timeout=60)
     
     current_map_str = map_to_string(current_env.state)
+    og_map_str = map_to_string(og_env.state)
     
     # PREVENT PROMPT BLOAT: Only send a unique summary of the path
     path_info = ""
@@ -67,26 +68,29 @@ def perturb_environment(dsl_code, current_env, crash_report, visited_cells=None)
             path_info = f"The robot visited these coordinates: {unique_cells}"
 
     prompt = f"""
-CURRENT MAP:
-{current_map_str}
+    ORIGINAL MAP:
+    {og_map_str}
+    
+    CURRENT MAP:
+    {current_map_str}
 
-ROBOT PROGRAM:
-{dsl_code}
+    ROBOT PROGRAM:
+    {dsl_code}
 
-ROBOT PATH RECORDED (Y, X coordinates):
-{path_info}
+    ROBOT PATH RECORDED (Y, X coordinates):
+    {path_info}
 
-TASK:
-You are a strict grid-validation algorithm. Your job is to generate a new variation of the CURRENT MAP that is 100% solvable by the provided ROBOT PROGRAM.
+    TASK:
+    You are a strict grid-validation algorithm. Your job is to generate a new variation of the CURRENT MAP that is 100% solvable by the provided ROBOT PROGRAM.
 
-ABSOLUTE RULES:
-1. GRID DIMENSIONS: The output MUST be exactly 14 rows by 22 columns. The outer border MUST remain '-'.
-2. PROTECT THE PATH: The ROBOT PATH RECORDED lists the exact coordinates the robot steps on. You are FORBIDDEN from placing a wall ('#') on any of these coordinates.
-3. DUST PLACEMENT: You MUST place exactly 10 dust markers ('*'). To guarantee the robot picks them up, every single '*' MUST be placed directly ON a coordinate listed in the ROBOT PATH RECORDED. 
-4. PERTURB WALLS: Fill the remaining space outside the robot's path with new wall ('#') layouts to change the maze structure.
+    ABSOLUTE RULES:
+    1. GRID DIMENSIONS: The output MUST be exactly 14 rows by 22 columns. The outer border MUST remain '-'.
+    2. PROTECT THE PATH: The ROBOT PATH RECORDED lists the exact coordinates the robot steps on. You are FORBIDDEN from placing a wall ('#') on any of these coordinates.
+    3. DUST PLACEMENT: You MUST place exactly 10 dust markers ('*'). To guarantee the robot picks them up, every single '*' MUST be placed directly ON a coordinate listed in the ROBOT PATH RECORDED. 
+    4. PERTURB WALLS: Fill the remaining space outside the robot's path with new wall ('#') layouts to change the maze structure.
 
-OUTPUT FORMAT:
-Output ONLY the 14 lines of ASCII characters. NO markdown tags (like ```text), NO explanations, NO conversational text. Just the raw grid."""
+    OUTPUT FORMAT:
+    Output ONLY the 14 lines of ASCII characters. NO markdown tags (like ```text), NO explanations, NO conversational text. Just the raw grid."""
     
     try:
         print("[Debug] Calling Ollama...")
@@ -126,8 +130,9 @@ def main():
     # 4. ITERATIVE REPAIR LOOP
     current_layout = None 
     
-    for attempt in range(1, 6):
-        print(f"\n--- Iteration {attempt}/5: Tracing & Testing ---")
+    MAX_ITERATIONS = 1000
+    for attempt in range(1, MAX_ITERATIONS + 1):
+        print(f"\n--- Iteration {attempt}/{MAX_ITERATIONS}: Tracing & Testing ---")
         
         if current_layout:
              env_args['layout'] = current_layout
@@ -149,7 +154,7 @@ def main():
             if hasattr(sim_env, 'hero_pos'):
                 visited_cells.append(tuple(sim_env.hero_pos))
 
-            MAX_STEPS = 500 # Safety guard against infinite DSL loops
+            MAX_STEPS = 1500 # Safety guard against infinite DSL loops
             for _ in step_gen:
                 steps += 1
                 if steps > MAX_STEPS:
@@ -182,7 +187,7 @@ def main():
         print(f"   -> Robot visited {len(set(visited_cells))} unique cells.")
         
         # --- PERTURB ---
-        current_layout = perturb_environment(dsl_code, env, crash_reason, visited_cells)
+        current_layout = perturb_environment(dsl_code, sim_env, env, crash_reason, visited_cells)
         
         if not current_layout:
             print("Failed to acquire map from LLM. Aborting.")
