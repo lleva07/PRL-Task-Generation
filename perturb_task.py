@@ -1,5 +1,4 @@
 import sys
-import os
 import copy
 import numpy as np
 from langchain_ollama import OllamaLLM
@@ -14,8 +13,7 @@ MODEL_NAME = "qwen2.5-coder:7b"
 # --- 1. MAP PARSER ---
 def parse_llm_map(ascii_str, target_h=14, target_w=22):
     lines = ascii_str.strip().split('\n')
-    # Filter for lines that actually look like map rows
-    valid_lines = [line.strip() for line in lines if set(line.strip()).issubset({'.', '#', 'A', '0', '-', '*', 'M'})]
+    valid_lines = [line.strip() for line in lines if set(line.strip()).issubset({'.', '#', 'A', '0', '-', '*', 'M', 'v', '^', '<', '>'})]
     if len(valid_lines) < 5: valid_lines = lines 
 
     grid = []
@@ -49,52 +47,46 @@ def map_to_string(state):
     return output
 
 # --- 2. THE PERTURBATION LOOP ---
-def perturb_environment(dsl_code, current_env, crash_report, visited_cells=None):
+def perturb_environment(dsl_code, current_env, crash_report):
     print(f"\n[AI] Perturbing Environment to fix: {crash_report}")
-    
-    # Added a 60-second timeout to prevent the script from hanging on a slow AI response
     llm = OllamaLLM(model=MODEL_NAME, temperature=0.5, timeout=60)
-    
     current_map_str = map_to_string(current_env.state)
     
-    # PREVENT PROMPT BLOAT: Only send a unique summary of the path
-    path_info = ""
-    if visited_cells:
-        unique_cells = sorted(list(set(visited_cells)))
-        if len(unique_cells) > 100:
-            path_info = f"The robot visited {len(unique_cells)} cells. Key coordinates: {unique_cells[:50]} ... {unique_cells[-50:]}"
-        else:
-            path_info = f"The robot visited these coordinates: {unique_cells}"
-
     prompt = f"""
+DSL SYNTAX CHEAT SHEET:
+- m( ... m) : Main program block definition.
+- w( ... w) : While loop.
+- i( ... i) : If condition block.
+- r( ... r) : Repeat loop.
+- c( frontIsClear c) : Condition checking if no wall is in front.
+- c( noMarkersPresent c) : Condition checking if tile has no dust.
+- move, turnLeft, turnRight, pickMarker : Standard robot actions.
+
 CURRENT MAP:
 {current_map_str}
 
 ROBOT PROGRAM:
 {dsl_code}
 
-ROBOT PATH RECORDED (Y, X coordinates):
-{path_info}
+CRASH/FAILURE REPORT:
+{crash_report}
 
 TASK:
-You are a strict grid-validation algorithm. Your job is to generate a new variation of the CURRENT MAP that is 100% solvable by the provided ROBOT PROGRAM.
+You are a highly restricted grid-mutation algorithm. The robot failed on the CURRENT MAP. Your job is to make a map that allows the robot to progress further.
 
 ABSOLUTE RULES:
 1. GRID DIMENSIONS: The output MUST be exactly 14 rows by 22 columns. The outer border MUST remain '-'.
-2. PROTECT THE PATH: The ROBOT PATH RECORDED lists the exact coordinates the robot steps on. You are FORBIDDEN from placing a wall ('#') on any of these coordinates.
-3. DUST PLACEMENT: You MUST place exactly 10 dust markers ('*'). To guarantee the robot picks them up, every single '*' MUST be placed directly ON a coordinate listed in the ROBOT PATH RECORDED. 
-4. PERTURB WALLS: Fill the remaining space outside the robot's path with new wall ('#') layouts to change the maze structure.
+2. ONE CHANGE ONLY: You are FORBIDDEN from redrawing the map. You may ONLY make ONE or TWO small changes compared to the CURRENT MAP (e.g., remove one blocking wall '#', or move one dust marker '*' to a tile the robot is trapped on).
+3. DO NOT MOVE THE ROBOT: Leave the 'A' exactly where it is.
 
 OUTPUT FORMAT:
-Output ONLY the 14 lines of ASCII characters. NO markdown tags (like ```text), NO explanations, NO conversational text. Just the raw grid."""
+Output ONLY the 14 lines of ASCII characters. NO markdown tags, NO explanations. Just the raw grid."""
     
     try:
-        print("[Debug] Calling Ollama...")
         response = llm.invoke(prompt)
-        print("[Debug] Received response from Ollama.")
         return parse_llm_map(response)
     except Exception as e:
-        print(f"Ollama Error (likely timeout or connection): {e}")
+        print(f"Ollama Error: {e}")
         return None
 
 def main():
@@ -106,34 +98,32 @@ def main():
     dsl_path = sys.argv[1]
     with open(dsl_path, 'r') as f:
         dsl_code = f.read().strip()
-    
     print(f"[Input] Loaded DSL from {dsl_path}")
 
-    # 2. PARSE DSL
     dsl_parser = KarelDSL()
-    try:
-        program_node = dsl_parser.parse_str_to_node(dsl_code)
-    except Exception as e:
-        print(f"DSL Parse Error: {e}")
-        return
+    program_node = dsl_parser.parse_str_to_node(dsl_code)
 
-    # 3. INITIALIZE ENVIRONMENT
-    print("[Start] Initializing Base Environment...")
-    env_args = {'env_height': 14, 'env_width': 22}
-    task = CleanHouse(seed=0, env_args=env_args)
-    env = task.initial_environment
-    
-    # 4. ITERATIVE REPAIR LOOP
+    # --- GREEDY ALGORITHM TRACKERS ---
+    best_reward = -1.0
+    best_layout = None
+    stagnant_attempts = 0
     current_layout = None 
     
-    for attempt in range(1, 6):
-        print(f"\n--- Iteration {attempt}/5: Tracing & Testing ---")
+    # Increased loop to 30 to give the greedy algorithm time to work
+    for attempt in range(1, 31):
+        print(f"\n================================================")
+        print(f"--- Iteration {attempt}/30: Tracing & Testing ---")
         
+        env_args = {'env_height': 14, 'env_width': 22}
         if current_layout:
              env_args['layout'] = current_layout
-             # We use a unique seed for marker placement, but the layout is now AI-generated
-             task = CleanHouse(seed=42+attempt, env_args=env_args)
-             env = task.initial_environment
+             
+        task = CleanHouse(seed=42+attempt, env_args=env_args)
+        env = task.initial_environment
+        
+        # 3. PRINT CURRENT MAP TO TERMINAL
+        current_map_str = map_to_string(env.state)
+        print(f"TESTING THIS MAP:\n{current_map_str}")
 
         sim_env = copy.deepcopy(env)
         step_gen = program_node.run_generator(sim_env)
@@ -142,22 +132,14 @@ def main():
         crash_reason = None
         terminated = False
         reward = 0.0
-        visited_cells = []
         
         try:
-            # Record start pos
-            if hasattr(sim_env, 'hero_pos'):
-                visited_cells.append(tuple(sim_env.hero_pos))
-
-            MAX_STEPS = 500 # Safety guard against infinite DSL loops
+            MAX_STEPS = 800 # Increased to match your test_original run
             for _ in step_gen:
                 steps += 1
                 if steps > MAX_STEPS:
                     crash_reason = "Timeout: Robot trapped in infinite loop."
                     break
-                
-                if hasattr(sim_env, 'hero_pos'):
-                    visited_cells.append(tuple(sim_env.hero_pos))
                 
                 terminated, reward = task.get_reward(sim_env)
                 if terminated:
@@ -169,20 +151,40 @@ def main():
                 terminated, reward = task.get_reward(sim_env)
             
             if reward >= 1.0:
-                print("\n[SUCCESS] Environment solvable!")
-                print(map_to_string(sim_env.state))
+                print("\n[SUCCESS] Environment solvable! Final Reward: 1.0")
                 break
             elif crash_reason is None:
-                crash_reason = f"Incomplete: Reward was only {reward:.2f} (missed markers)."
+                crash_reason = f"Incomplete: Reward was only {reward:.2f}."
                 
         except Exception as e:
             crash_reason = f"Runtime Crash: {e}"
 
         print(f"[FAIL] {crash_reason}")
-        print(f"   -> Robot visited {len(set(visited_cells))} unique cells.")
         
-        # --- PERTURB ---
-        current_layout = perturb_environment(dsl_code, env, crash_reason, visited_cells)
+        # --- GREEDY LOGIC EVALUATION ---
+        if reward > best_reward:
+            print(f"[IMPROVEMENT] Reward increased from {best_reward:.2f} to {reward:.2f}! Saving layout.")
+            best_reward = reward
+            # Save layout (if it's the first run, save the base map)
+            best_layout = copy.deepcopy(current_layout) if current_layout else parse_llm_map(current_map_str)
+            stagnant_attempts = 0
+        else:
+            stagnant_attempts += 1
+            print(f"[STAGNANT] Reward ({reward:.2f}) did not improve. Stagnant counter: {stagnant_attempts}/5")
+            
+        # --- REVERT LOGIC ---
+        if stagnant_attempts >= 5:
+            print(f"\n[REVERT TRIGGERED] 5 failed attempts in a row. Reverting to best map (Reward: {best_reward:.2f}).")
+            current_layout = copy.deepcopy(best_layout)
+            stagnant_attempts = 0
+            # Ask LLM to perturb the *best* map again, but maybe a different way this time
+            task_for_perturb = CleanHouse(seed=0, env_args={'env_height': 14, 'env_width': 22, 'layout': current_layout})
+            env_for_perturb = task_for_perturb.initial_environment
+            current_layout = perturb_environment(dsl_code, env_for_perturb, "REVERTED. Try a DIFFERENT small change than before to improve the path.")
+            continue
+        
+        # --- STANDARD PERTURBATION ---
+        current_layout = perturb_environment(dsl_code, env, crash_reason)
         
         if not current_layout:
             print("Failed to acquire map from LLM. Aborting.")
